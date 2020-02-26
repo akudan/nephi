@@ -1,4 +1,5 @@
 import howe
+import sauvola
 
 from os import listdir, makedirs, system
 from os.path import isfile, join, exists, splitext, basename
@@ -58,17 +59,10 @@ def process_image(params):
     if exists(output_file):
         return
     image = cv2.imread(filename)
-    if binarizer == "--howe":
-        result = howe.binarize(image)
-        cv2.imwrite(output_file, result)
-    else:
-        run_str = "/deep_data/imgtxtenh/build/imgtxtenh -w 30 -d 7.0 -s 0.5 -S 1 {} {}"
-        run_str = run_str.format(filename, output_file)
-        print run_str
-        ret = system(run_str)
-        if ret != 0:
-            raise Exception("BREAK ERROR")
-    print ("Saved Howe binarization from %s to %s in time: %s" % (filename, output_file, str(time.time() - start)))
+    binarize_fcn = howe.binarize if binarizer == "--howe" else sauvola.binarize
+    result = binarize_fcn(image)
+    cv2.imwrite(output_file, result)
+    print ("Saved binarization from %s to %s in time: %s" % (filename, output_file, str(time.time() - start)))
 
 
     
