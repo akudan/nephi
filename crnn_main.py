@@ -7,7 +7,7 @@ import torch.optim as optim
 import torch.utils.data
 from torch.autograd import Variable
 import numpy as np
-from warpctc_pytorch import CTCLoss
+from torch.nn import CTCLoss
 import PIL
 import os
 import utils
