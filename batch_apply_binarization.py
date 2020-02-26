@@ -57,18 +57,18 @@ def process_image(params):
     #print filename
     if exists(output_file):
         return
-    image = cv2.imread(join(input_path, filename))
+    image = cv2.imread(filename)
     if binarizer == "--howe":
         result = howe.binarize(image)
         cv2.imwrite(output_file, result)
     else:
         run_str = "/deep_data/imgtxtenh/build/imgtxtenh -w 30 -d 7.0 -s 0.5 -S 1 {} {}"
-        run_str = run_str.format(join(input_path, filename), output_file)
+        run_str = run_str.format(filename, output_file)
         print run_str
         ret = system(run_str)
         if ret != 0:
             raise Exception("BREAK ERROR")
-    print ("Saved Howe binarization from %s to %s in time: %s" % (join(input_path, filename), output_file, str(time.time() - start)))
+    print ("Saved Howe binarization from %s to %s in time: %s" % (filename, output_file, str(time.time() - start)))
 
 
     
@@ -78,6 +78,5 @@ pool = multiprocessing.Pool(processes=processes)
 #     print i * processes, " images processed"
 #     func_params = [(v, images_folder, output_folder) for v in image_data]
 #     result = pool.map(process_image, func_params)
-
 func_params = [(v, images_folder, output_folder) for v in image_files]
 result = pool.map(process_image, func_params)
