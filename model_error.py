@@ -2,8 +2,6 @@ import Levenshtein
 
 import sys  
 stdout = sys.stdout
-reload(sys)  
-sys.setdefaultencoding('utf-8')
 sys.stdout = stdout
 encoding="utf-8"
 
@@ -30,14 +28,6 @@ def cer(r, h):
     #print(h)
     #print("Debug: Is it a string? %s" % str(isinstance(h, str)))
     
-    # The first error occurred when the prediction was either blank or it was a space, and the ground truth was um and was a unicode. I think that just setting everything to unicode here may be able to save it.
-    
-    # This hit an error when there were too many words in a line for the char encoding
-    if (isinstance(r, str)):
-        r = unicode(r, encoding)
-    if (isinstance(h, str)):
-        h = unicode(h, encoding)
-    
     # Levenshtein supports unicode strings so no need to write encode('utf-8')
     steps = Levenshtein.editops(r, h)
     d = len([v for v in steps if v[0] == 'delete'])
@@ -58,7 +48,7 @@ def wer(r, h):
     current_char = 170 # ad-hoc search of valid unicode for this, this will at least allow to go up to 400 so should have plenty of words for each line in any dataset we work with
     for w in r + h:
         if w not in word_lookup:
-            word_lookup[w] = unichr(current_char)
+            word_lookup[w] = chr(current_char)
             current_char += 1
 
     r = "".join([word_lookup[w] for w in r])

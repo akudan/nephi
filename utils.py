@@ -6,6 +6,31 @@ import torch.nn as nn
 from torch.autograd import Variable
 import collections
 
+
+def pad(species):
+    """Put different species together into single tensor.
+    If the species are from molecules of different number of total atoms, then
+    ghost atoms with atom type -1 will be added to make it fit into the same
+    shape.
+    Arguments:
+        species (:class:`collections.abc.Sequence`): sequence of species.
+            Species must be of shape ``(N, A)``, where ``N`` is the number of
+            3D structures, ``A`` is the number of atoms.
+    Returns:
+        :class:`torch.Tensor`: species batched together.
+    """
+    max_atoms = max([s.shape[1] for s in species])
+    padded_species = []
+    for s in species:
+        natoms = s.shape[1]
+        if natoms < max_atoms:
+            padding = torch.full((s.shape[0], max_atoms - natoms), -1,
+                                 dtype=torch.long, device=s.device)
+            s = torch.cat([s, padding], dim=1)
+        padded_species.append(s)
+    return torch.cat(padded_species)
+
+
 class strLabelConverter(object):
     """Convert between str and label.
 
@@ -45,7 +70,7 @@ class strLabelConverter(object):
             torch.IntTensor [length_0 + length_1 + ... length_{n - 1}]: encoded texts.
             torch.IntTensor [n]: length of each text.
         """
-        if isinstance(text, basestring):
+        if isinstance(text, str) or isinstance(text, bytes):
             text = [
                 self.dict[char.lower() if self._ignore_case else char]
                 for char in text
@@ -53,11 +78,12 @@ class strLabelConverter(object):
 
             length = [len(text)]
         elif isinstance(text, collections.Iterable):
+            res_list = [self.encode(t) for t in text]
+            length = [r[1][0] for r in res_list]
+            max_len = max(length)
+            text_list = [torch.cat((r[0], torch.zeros(max_len-r[1][0], dtype=torch.int))) for r in res_list]
+            text = torch.stack(text_list)
 
-            length = [len(s) for s in text]
-            text = ''.join(text)
-
-            text, _ = self.encode(text)
         return (torch.IntTensor(text), torch.IntTensor(length))
 
     def decode(self, t, length, raw=False):
@@ -96,7 +122,6 @@ class strLabelConverter(object):
                         t[index:index + l], torch.IntTensor([l]), raw=raw))
                 index += l
             return texts
-
 
 class averager(object):
     """Compute average for `torch.Variable` and `torch.Tensor`. """

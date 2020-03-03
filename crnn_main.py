@@ -1,4 +1,4 @@
-from __future__ import print_function
+from __future__ import print_function, division
 import argparse
 import random
 import torch
@@ -7,7 +7,6 @@ import torch.optim as optim
 import torch.utils.data
 from torch.autograd import Variable
 import numpy as np
-from torch.nn import CTCLoss
 import PIL
 import os
 import utils
@@ -17,13 +16,12 @@ from collections import Counter
 encoding = 'utf-8'
 
 import models.crnn
+from torch.nn import CTCLoss
 import torch.nn as nn
 
+from models.parallel import DataParallelModel, DataParallelCriterion
+
 import sys  
-stdout = sys.stdout
-reload(sys)  
-sys.setdefaultencoding('utf-8')
-sys.stdout = stdout
 from model_error import cer, wer
 
 
@@ -215,15 +213,15 @@ if opt.model=='ctc':
 
 
 image = torch.FloatTensor(opt.batchSize, 3 if opt.binarize else 1, opt.imgW, opt.imgH)   #
-text = torch.IntTensor(opt.batchSize * 5)          # RA: I don't understand why the text has this size
+text = torch.IntTensor(opt.batchSize, 1)          # RA: I don't understand why the text has this size
 length = torch.IntTensor(opt.batchSize)
 
 if opt.cuda:
     if opt.model=='ctc':
         crnn.cuda()
-        crnn = torch.nn.DataParallel(crnn, device_ids=range(opt.ngpu))
-        criterion = criterion.cuda()
-
+        crnn = DataParallelModel(crnn, device_ids=range(opt.ngpu))
+        criterion = DataParallelCriterion(criterion, device_ids=range(opt.ngpu))
+        print("Running on %d GPU(s)" % opt.ngpu)
     image = image.cuda()
 
 
@@ -261,6 +259,11 @@ if opt.model=='ctc':
         optimizer = optim.RMSprop(crnn.parameters(), lr=opt.lr)  # default
 
 
+
+calc_preds_size = lambda preds: Variable(torch.cat([torch.IntTensor([p.size(0)] * p.size(1)) for p in preds]))
+
+
+
 def test(net, dataset, criterion, n_aug=1):
     print('Start test set predictions')
 
@@ -287,15 +290,12 @@ def test(net, dataset, criterion, n_aug=1):
 
             preds = crnn(image)
             #print(preds.size())
-            preds_size = Variable(torch.IntTensor([preds.size(0)] * batch_size))
-
+            preds_size = calc_preds_size(preds)
 
             # RA: While I am not sure yet, it looks like a greedy decoder and not beam search is being used here
             # Case is ignored in the accuracy, which is not ideal for an actual working system
 
-            _, preds = preds.max(2)     
-            if torch.__version__ < '0.2':
-              preds = preds.squeeze(2) # https://github.com/meijieru/crnn.pytorch/issues/31
+            _, preds = torch.cat(preds, 1).max(2)     
             preds = preds.transpose(1, 0).contiguous().view(-1)
             sim_preds = converter.decode(preds.data, preds_size.data, raw=False)
 
@@ -319,16 +319,15 @@ def test(net, dataset, criterion, n_aug=1):
 def trainBatch(net, criterion, optimizer):
     data = train_iter.next()
     cpu_images, cpu_texts, __ = data
-
+    cpu_texts = [t.decode("utf-8") for t in cpu_texts]
     batch_size = cpu_images.size(0)
     utils.loadData(image, cpu_images)
     t, l = converter.encode(cpu_texts)
     utils.loadData(text, t)
     utils.loadData(length, l)
-
     preds = crnn(image)
-    preds_size = Variable(torch.IntTensor([preds.size(0)] * batch_size))
-    cost = criterion(preds, text, preds_size, length) / batch_size
+    preds_size = calc_preds_size(preds)
+    cost = criterion(preds, text, preds_size, length).mean()
     crnn.zero_grad()
     cost.backward()
     optimizer.step()
@@ -365,6 +364,7 @@ def val(net, dataset, criterion, max_iter=1000, test_aug=False, n_aug=1):
             data = val_iter.next()
             i += 1
             cpu_images, cpu_texts, cpu_files = data
+            cpu_texts = [t.decode("utf-8") for t in cpu_texts]
             batch_size = cpu_images.size(0)
             image_count = image_count + batch_size
             utils.loadData(image, cpu_images)
@@ -373,17 +373,13 @@ def val(net, dataset, criterion, max_iter=1000, test_aug=False, n_aug=1):
             utils.loadData(length, l)
 
             preds = crnn(image)
-            #print(preds.size())
-            preds_size = Variable(torch.IntTensor([preds.size(0)] * batch_size))
-            cost = criterion(preds, text, preds_size, length) / batch_size
+            preds_size = calc_preds_size(preds)
+            cost = criterion(preds, text, preds_size, length).mean()
             loss_avg.add(cost)
 
             # RA: While I am not sure yet, it looks like a greedy decoder and not beam search is being used here
             # Case is ignored in the accuracy, which is not ideal for an actual working system
-
-            _, preds = preds.max(2)
-            if torch.__version__ < '0.2':
-              preds = preds.squeeze(2) # https://github.com/meijieru/crnn.pytorch/issues/31
+            _, preds = torch.cat(preds, 1).max(2)
             preds = preds.transpose(1, 0).contiguous().view(-1)
             sim_preds = converter.decode(preds.data, preds_size.data, raw=False)
 
@@ -488,12 +484,10 @@ elif opt.mode=='test':
             files, predictions = test(crnn, test_loader, criterion, n_aug=opt.n_aug if opt.test_aug else 1)
         with io.open(opt.test_file, "w", encoding=encoding) as test_results:
             for f, pred in zip(files, predictions):
-                test_results.write(' '.join([unicode(f, encoding=encoding),
-                                             pred]) + u"\n")  # this should combine ascii text and unicode correctly
+                test_results.write(' '.join([f, pred]) + "\n")  # this should combine ascii text and unicode correctly
     elif opt.dataset=='READ':
         if opt.model=='ctc':
             files, predictions = test(crnn, test_loader, criterion, n_aug=opt.n_aug if opt.test_aug else 1)
             with io.open(opt.test_file, "w", encoding=encoding) as test_results:
                 for f, pred in zip(files, predictions):
-                    test_results.write(' '.join([unicode(f, encoding=encoding),
-                                                 pred]) + u"\n")  # this should combine ascii text and unicode correctly
+                    test_results.write(' '.join([f, pred]) + "\n")  # this should combine ascii text and unicode correctly

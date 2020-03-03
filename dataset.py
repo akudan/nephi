@@ -49,7 +49,7 @@ class lmdbDataset(Dataset):
             if debug:
                 self.nSamples = 1000
             else:
-                nSamples = int(txn.get('num-samples'))
+                nSamples = int(txn.get(str('num-samples').encode()))
                 self.nSamples = nSamples
         
         self.scale_dim = scale_dim
@@ -75,7 +75,7 @@ class lmdbDataset(Dataset):
                 howe_imageKey = 'howe-image-%09d' % index
                 simplebin_imageKey = 'simplebin-image-%09d' % index
             
-            imgbuf = txn.get(img_key)
+            imgbuf = txn.get(img_key.encode())
             buf = six.BytesIO()
             buf.write(imgbuf)
             buf.seek(0)
@@ -85,7 +85,7 @@ class lmdbDataset(Dataset):
                 print('Corrupted image for %d' % index)
                 return self[index + 1]
             if self.binarize:
-                imgbuf = txn.get(howe_imageKey)
+                imgbuf = txn.get(howe_imageKey.encode())
                 buf = six.BytesIO()
                 buf.write(imgbuf)
                 buf.seek(0)
@@ -94,7 +94,7 @@ class lmdbDataset(Dataset):
                 except IOError:
                     print('Corrupted image for %d' % index)
                     return self[index + 1]
-                imgbuf = txn.get(simplebin_imageKey)
+                imgbuf = txn.get(simplebin_imageKey.encode())
                 buf = six.BytesIO()
                 buf.write(imgbuf)
                 buf.seek(0)
@@ -105,10 +105,10 @@ class lmdbDataset(Dataset):
                     return self[index + 1]
             
             label_key = 'label-%09d' % index
-            label = unicode(txn.get(label_key), encoding=encoding) if not self.test else u''   # Hopefully this still works with unicode
+            label = txn.get(label_key.encode()) if not self.test else ''   # Hopefully this still works with unicode
             
             file_key = 'file-%09d' % index
-            file_name = str(txn.get(file_key)) 
+            file_name = str(txn.get(file_key.encode())) 
 
             if self.target_transform is not None:
                 label = self.target_transform(label)
